@@ -1,0 +1,233 @@
+#coding:utf-8
+from selenium import webdriver
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import smtplib
+import requests
+import schedule
+import threading
+import time as t
+import re
+import os, sys, io
+import logging
+from pathlib import Path
+import configparser
+import traceback
+# import pygame
+
+"""config"""
+config = configparser.ConfigParser()
+config.read('Config.ini', encoding = 'utf-8')
+Brand = config.get('Parameters', 'Brand') # 三得利(提前預約限定品)商品代號
+Name = config.get('Parameters', 'Name') # 姓名(拼音)
+Email = config.get('Parameters', 'Email') # 電子郵件地址
+Country = config.get('Parameters', 'Country') # 現在的住址
+PhoneTitle = config.get('Parameters', 'PhoneTitle') # 電話番号（国番号）
+Phone = config.get('Parameters', 'Phone') # 電話
+DepartYear = config.get('Parameters', 'DepartYear') # 出發日期(年)
+DepartMonth = config.get('Parameters', 'DepartMonth') # 出發日期(月)
+DepartDay = config.get('Parameters', 'DepartDay') # 出發日期(日)
+DepartWeek = config.get('Parameters', 'DepartWeek') # 出發日期(周)
+FlightNumber = config.get('Parameters', 'FlightNumber') # 搭乘的航班號
+AirlinesIds = config.get('Parameters', 'AirlinesIds') # 候機樓及航空公司
+DestinationRegion = config.get('Parameters', 'DestinationRegion') # 目的地(區域)
+TransitCity = config.get('Parameters', 'TransitCity') # 目的地(途徑地)
+DestinationCity = config.get('Parameters', 'DestinationCity') # 目的地(目的地)
+PyEmail = config.get('Email', 'PyEmail') # 信箱應用程式密碼
+Tilte = config.get('Email', 'Tilte') # 信件標題
+From = config.get('Email', 'From') # 寄件人
+To = config.get('Email', 'To') # 收件人
+
+"""email"""
+content = MIMEMultipart()  #建立MIMEMultipart物件
+content["subject"] = "FaSoLa"  #郵件標題
+content["from"] = "pydemo123@gmail.com"  #寄件者
+content["to"] = "example@gmail.com" #收件者
+content.attach(MIMEText("Demo python send email"))  #郵件內容
+
+"""log紀錄"""
+path = str(Path(os.getcwd()))
+Info_Log_path = os.path.join(path, "log", t.strftime('%Y%m%d', t.localtime()) + ".log")
+
+logging.basicConfig(level=logging.INFO,
+                    format='[%(asctime)-4s] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    handlers = [logging.FileHandler(Info_Log_path, 'a+', 'utf-8'),])
+
+
+"""使用headless模式"""
+chrome_options = Options() # 啟動無頭模式
+chrome_options.add_argument("--window-size=1920,1080")
+chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
+chrome_options.add_argument('--headless')
+chrome_options.add_argument('--disable-gpu')
+
+"""錯誤訊息追蹤"""
+def exception_to_string(excp):
+   stack = traceback.extract_stack()[:-3] + traceback.extract_tb(excp.__traceback__) 
+   pretty = traceback.format_list(stack)
+   return ''.join(pretty) + '\n  {} {}'.format(excp.__class__,excp)
+
+"""寄送email"""
+def send_email(status, product_name):
+    # 設定email內容
+    content = MIMEMultipart()  #建立MIMEMultipart物件
+    content["subject"] = Tilte  #郵件標題
+    content["from"] = From  #寄件者
+    content["to"] = To #收件者
+    content.attach(MIMEText(product_name + ' : ' + status))  #郵件內容
+    # 設定STMP以及發送信件
+    with smtplib.SMTP(host="smtp.gmail.com", port="587") as smtp:  # 設定SMTP伺服器
+        try:
+            smtp.ehlo() # 驗證SMTP伺服器
+            smtp.starttls() # 建立加密傳輸
+            smtp.login(From, PyEmail) # 登入寄件者gmail
+            smtp.send_message(content) # 寄送郵件
+        except Exception as err:
+            logging.info('發送email失敗，原因為 : ' + exception_to_string(err))
+
+"""撥放音樂"""
+def play_music():
+    audio = 'music/test.mp3'
+    pygame.init()
+    pygame.mixer.init()
+    pygame.mixer.music.load(audio)
+    pygame.mixer.music.play()
+    t.sleep(3)
+    pygame.mixer.music.stop()
+
+
+"""Schedule"""
+def job(i):
+    isEmpty = True
+    while True:
+        if isEmpty:
+            t.sleep(20)
+            isEmpty = main(i)
+            # isEmpty = schedule.every(20).seconds.do(main, args=(i,))
+        else:
+            t.sleep(5)
+            isEmpty = main(i)            
+            # isEmpty = schedule.every(5).seconds.do(main, args=(i,))
+
+"""主程式"""
+def main(i):
+    """使用chrome driver"""
+    driver = webdriver.Chrome('./chromedriver.exe', chrome_options=chrome_options) # 使用selenium中chrome的操作    
+    url = 'https://www.fasola-shop.com/zh-TW/products?utf8=%E2%9C%93&q[brand_id_eq][]=171' # FaSoLa-三得利(提前預約限定品)網址
+    driver.get(url)
+
+    # 如果跳出是否滿20歲，點選是
+    try:
+        driver.find_element(By.XPATH, '//button[text()="是"]').click()
+    except:
+        pass
+
+    try:
+        products_lst = driver.find_elements(By.XPATH, '//ul[@id="products"]//li[@data-hook="products_list_item"]') # 商品清單
+        product = products_lst[i] # 第i樣產品
+        status = product.find_elements(By.XPATH, '//div[@class="product-action"]')[i].text # 商品狀態
+        # product_id = product.get_attribute("id") # 商品id
+        product_name = product.find_elements(By.XPATH, '//a/dl/dt')[i].get_attribute('title').strip() # 商品名稱
+        # authenticity_token = product.find_elements(By.XPATH, '//input[@name="authenticity_token"]')[i].get_attribute('value') # token
+        # variant_id = product.find_elements(By.XPATH, '//input[@name="variant_id"]')[i].get_attribute('value') # variant_id
+    except Exception as err:
+        logging.info('錯誤階段，解析商品頁面 : ' + exception_to_string(err))
+    try:
+        if status != '脫銷':
+            logging.info(product_name + ' : ' + status)
+            # send_email(status, product_name)
+            # play_music()
+            if "放入購物車" in status:
+                logging.info(product_name + ' : 放入購物車')
+                """下單"""
+                product.find_elements(By.XPATH, '//form[@action="/orders/populate"]')[i].submit()
+                t.sleep(1)
+                driver.find_element(By.XPATH, '//li//a[@href="/zh-TW/"]').click() # 點選繁體中文
+                # driver.find_element(By.XPATH, '//td[@class="quantity"]//input').send_keys('1') # 購買一瓶
+                driver.find_element(By.XPATH, '//button[@name="checkout"]').click() # 點選進入預訂手續
+                """開始輸入預定資訊"""
+                driver.find_element_by_id('order_bill_address_attributes_fullname').send_keys(Name) # 輸入姓名(拼音)
+                driver.find_element_by_id('order_email').send_keys(Email) # 輸入電子郵件地址
+                driver.find_element_by_id('order_email_confirmation').send_keys(Email) # 輸入電子郵件地址(確認)
+                life_locale_list = Select(driver.find_element_by_id('order_life_locale'))  # 找出現在的住址選單
+                life_locale_list.select_by_visible_text(Country) # 選擇住址
+                driver.find_element_by_id('order_bill_address_attributes_phone_country').send_keys(PhoneTitle) # 輸入電話番号（国番号）
+                driver.find_element_by_id('order_bill_address_attributes_phone').send_keys(Phone) # 輸入電話
+                depart_year_list = Select(driver.find_element_by_id('order_depart_on_1i'))  # 找出出發日期選單(年)
+                depart_year_list.select_by_visible_text(DepartYear) # 選擇年
+                depart_month_list = Select(driver.find_element_by_id('order_depart_on_2i'))  # 找出出發日期選單(月))
+                depart_month_list.select_by_visible_text(DepartMonth) # 選擇月
+                depart_day_list = Select(driver.find_element_by_id('order_depart_on_3i'))  # 找出出發日期選單(日)
+                depart_day_list.select_by_visible_text(DepartDay) # 選擇日
+                depart_week_list = Select(driver.find_element_by_id('order_depart_day_of_the_week'))  # 找出出發日期選單(周)
+                depart_week_list.select_by_visible_text(DepartWeek) # 選擇周
+                airline_ids_list = Select(driver.find_element_by_id('order_airline_ids_'))  # 找出候機樓及航空公司選單
+                airline_ids_list.select_by_visible_text(AirlinesIds) # 選擇第1候機樓
+                driver.find_element_by_id('order_flight_number').send_keys(FlightNumber) # 輸入搭乘的航班號                
+                destination_region_list = Select(driver.find_element_by_id('order_destination_region_id'))  # 找出目的地選單
+                destination_region_list.select_by_visible_text(DestinationRegion) # 選擇目的地
+                driver.find_element_by_id('order_transit_city').send_keys(TransitCity) # 輸入目的地(途徑地) 
+                driver.find_element_by_id('order_destination_city').send_keys(DestinationCity) # 輸入目的地(目的地)) 
+                driver.find_element(By.XPATH, '//button[@name="checkout"]').click() # 點選進入確認畫面
+                t.sleep(3)
+                try:
+                    driver.find_element(By.XPATH, '//input[@class="js-toggle_agree"]').click() # 點選我同意個人資訊的處理
+                    driver.find_element(By.XPATH, '//button[@class="btn btn-default js-agree_required"]').click() # 點選落單
+                    logging.info(product_name + ' : 下單完成')
+                    driver.close()
+                except:
+                    logging.info(product_name + ' : 下單失敗')
+                    err_msg = driver.find_element_by_class_name('errorExplanation').text # 錯誤訊息
+                    logging.info(product_name + ' : ' + err_msg)
+            else: # 如果不是放入購物車，但狀被為脫銷，可能為下架中
+                driver.close()
+                return False
+        else: # 狀態為脫銷中
+            logging.info(product_name + ' : ' + status)
+            driver.close()
+            return True
+    except Exception as err:
+        logging.info('錯誤階段，下單過程錯誤 : ' + exception_to_string(err))
+
+
+if __name__ == '__main__':
+    thd_lst = []
+    isEmpty = True
+    for i in range(3):
+        thd = threading.Thread(target = job, args = (i,))
+        # 執行該子執行緒
+        thd.start()
+        # 主執行緒繼續執行自己的工作
+        thd_lst.append(thd)
+    for thd in thd_lst:
+    # 等待thread這個子執行緒結束
+        thd.join()
+
+
+# # 判斷商品狀態
+# i = 0
+# for product in products_lst:
+#     status = product.find_elements(By.XPATH, '//div[@class="product-action"]')[i].text
+#     product_id = product.get_attribute("id")
+#     product_name = product.find_elements(By.XPATH, '//a/dl/dt')[i].get_attribute('title').strip()
+#     authenticity_token = product.find_elements(By.XPATH, '//input[@name="authenticity_token"]')[i].get_attribute('value')
+#     variant_id = product.find_elements(By.XPATH, '//input[@name="variant_id"]')[i].get_attribute('value')
+#     # 如果商品狀態非為脫銷，則撥放音樂、寄信、下單
+#     if status != '脫銷':
+#         # play_music()
+#         # send_email(status, product_name)
+#         print(authenticity_token)
+#         print(variant_id)
+#         if "放入購物車" in status:
+#             """使用chrome driver"""  
+#             product.find_elements(By.XPATH, '//form[@action="/orders/populate"]')[i].submit()
+#             buy_product(status, product_id)
+#     i += 1
